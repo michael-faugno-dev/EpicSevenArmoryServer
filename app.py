@@ -404,6 +404,28 @@ def auth_link_status():
 # ──────────────────────────────────────────────────────────────────────────────
 # Twitch Extension Routes (overlay/config)
 # ──────────────────────────────────────────────────────────────────────────────
+@app.route("/twitch/channel_config", methods=["GET", "OPTIONS"])
+def twitch_channel_config():
+    """
+    GET the current channel mapping for the authenticated broadcaster.
+    Called by config.js on load (after onAuthorized) so the input is
+    pre-populated from the server rather than only from Twitch CDN storage.
+    Returns { ok, channel_id, username } — username is null if not yet mapped.
+    """
+    if request.method == "OPTIONS":
+        return _preflight_ok()
+    try:
+        payload = verify_ext_jwt(request.headers.get("Authorization"))
+        channel_id = payload["channel_id"]
+        mapping = TwitchChannels.find_one({"channel_id": channel_id})
+        return jsonify({
+            "ok": True,
+            "channel_id": channel_id,
+            "username": mapping.get("username") if mapping else None,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 401
+
 @app.route("/twitch/map_channel", methods=["POST", "OPTIONS"])
 def twitch_map_channel():
     if request.method == "OPTIONS":
@@ -444,11 +466,25 @@ def twitch_selected_units():
         if not mapping:
             return jsonify([])
         username = mapping.get("username")
-        user_doc = Users.find_one({"username": username}) or {}
-        selected = user_doc.get("selected_units") or []
-        if not isinstance(selected, list):
-            selected = []
-        return jsonify(selected)
+
+        # selected_units is a SEPARATE collection (not a field on the User doc).
+        # Look up unit_id1..4, then resolve each to a full ImageStats document.
+        sel_doc = db.selected_units.find_one({"username": username}) or {}
+        unit_ids = [
+            sel_doc.get(f"unit_id{i}")
+            for i in range(1, 5)
+            if sel_doc.get(f"unit_id{i}")
+        ]
+        units_data = []
+        for uid in unit_ids:
+            try:
+                unit = ImageStats.find_one({"_id": ObjectId(uid)})
+                if unit:
+                    unit["_id"] = str(unit["_id"])
+                    units_data.append(unit)
+            except Exception:
+                pass
+        return jsonify(units_data)
     except Exception as e:
         return jsonify({"error": str(e)}), 401
 
