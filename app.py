@@ -10,7 +10,6 @@ from typing import Dict, Any
 
 import requests
 from flask import Flask, request, jsonify, make_response, redirect
-from flask_cors import CORS
 from pymongo import MongoClient, ReturnDocument
 from pymongo.errors import PyMongoError
 from bson.objectid import ObjectId
@@ -66,11 +65,9 @@ ALLOWED_ORIGINS = set(DEFAULT_TWITCH_ORIGINS + EXTRA_ALLOWED_ORIGINS)
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 
-CORS(
-    app,
-    resources={r"/*": {"origins": list(ALLOWED_ORIGINS) or "*"}},
-    supports_credentials=False,
-)
+# CORS is handled entirely by _reflect_cors / @app.after_request below.
+# flask_cors is intentionally NOT used here — its after_request hook runs
+# after ours and overwrites the Electron null-origin wildcard we set.
 
 def _is_electron_origin(origin: str) -> bool:
     # Electron renders from file:// which sends a null or empty Origin header.
