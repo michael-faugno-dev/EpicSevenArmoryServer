@@ -72,9 +72,16 @@ CORS(
     supports_credentials=False,
 )
 
+def _is_electron_origin(origin: str) -> bool:
+    # Electron renders from file:// which sends a null or empty Origin header.
+    return not origin or origin == "null"
+
 def _reflect_cors(resp):
     origin = request.headers.get("Origin")
-    if origin and (not ALLOWED_ORIGINS or origin in ALLOWED_ORIGINS):
+    if _is_electron_origin(origin):
+        # Desktop app (Electron) — allow wildcard so fetch() calls succeed
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+    elif origin and (not ALLOWED_ORIGINS or origin in ALLOWED_ORIGINS):
         resp.headers["Access-Control-Allow-Origin"] = origin
     resp.headers["Vary"] = "Origin"
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Username, username"
