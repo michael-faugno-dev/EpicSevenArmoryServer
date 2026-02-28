@@ -52,6 +52,11 @@ DEFAULT_TWITCH_ORIGINS = [
     "https://extension-files.twitch.tv",
     "http://127.0.0.1:5500",  # Live Server (dev)
     "http://localhost:5500",
+    # Electron / Vite dev — renderer loads from localhost:3000, so Origin is NOT null
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
 ]
 if TWITCH_EXTENSION_CLIENT_ID:
     DEFAULT_TWITCH_ORIGINS.append(f"https://{TWITCH_EXTENSION_CLIENT_ID}.ext-twitch.tv")
