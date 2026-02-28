@@ -39,7 +39,7 @@ TWITCH_OAUTH_CLIENT_SECRET = os.environ.get("TWITCH_OAUTH_CLIENT_SECRET", "").st
 TWITCH_OAUTH_REDIRECT_URI = os.environ.get("TWITCH_OAUTH_REDIRECT_URI", "").strip()
 
 # Public base URL of this server (for redirects/callbacks), e.g.
-# https://epicsevenarmoryserver-1.onrender.com
+# https://epicsevenarmoryserver-87gz.onrender.com
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
 
 # Additional CORS origins (comma-separated)
@@ -172,6 +172,21 @@ def verify_ext_jwt(auth_header: str) -> Dict[str, Any]:
         raise ValueError("Expected Bearer token")
     if not EXT_SECRET_BYTES:
         raise ValueError("Server missing/invalid TWITCH_EXTENSION_SECRET")
+
+    # Decode claims without verification so we can log them for debugging
+    try:
+        unverified = jwt.decode(
+            token,
+            options={"verify_signature": False, "verify_aud": False},
+            algorithms=["HS256"],
+        )
+        print(f"[JWT] Unverified claims: {unverified}", file=sys.stderr)
+    except Exception as ue:
+        print(f"[JWT] Could not decode token at all: {ue}", file=sys.stderr)
+
+    print(f"[JWT] Secret bytes length: {len(EXT_SECRET_BYTES)}", file=sys.stderr)
+    print(f"[JWT] Token prefix: {token[:20]}...", file=sys.stderr)
+
     try:
         payload = jwt.decode(
             token,
@@ -182,7 +197,7 @@ def verify_ext_jwt(auth_header: str) -> Dict[str, Any]:
     except ExpiredSignatureError:
         raise ValueError("Token expired")
     except InvalidTokenError as e:
-        print(f"[JWT] Invalid token: {e}", file=sys.stderr)
+        print(f"[JWT] Signature verification failed. Secret len={len(EXT_SECRET_BYTES)}, error={e}", file=sys.stderr)
         raise ValueError(f"Invalid token: {e}")
     if "channel_id" not in payload or "role" not in payload:
         raise ValueError("Token missing required claims")
@@ -201,8 +216,35 @@ def health():
             "time": _now().isoformat() + "Z",
             "db_connected": bool(db is not None),
             "client_id": TWITCH_EXTENSION_CLIENT_ID or None,
+            "secret_loaded": bool(EXT_SECRET_BYTES),
+            "secret_bytes_len": len(EXT_SECRET_BYTES),
         }
     )
+
+
+@app.route("/debug/jwt", methods=["GET", "OPTIONS"])
+def debug_jwt():
+    """Debug endpoint — decodes the extension JWT without verifying signature.
+    Shows claims and secret status so we can diagnose mismatches."""
+    if request.method == "OPTIONS":
+        return _preflight_ok()
+    auth = request.headers.get("Authorization", "")
+    if not auth or " " not in auth:
+        return jsonify({"error": "No Authorization header"}), 400
+    token = auth.split(" ", 1)[1]
+    try:
+        unverified = jwt.decode(
+            token,
+            options={"verify_signature": False, "verify_aud": False},
+            algorithms=["HS256"],
+        )
+    except Exception as e:
+        return jsonify({"error": f"Could not decode token: {e}"}), 400
+    return jsonify({
+        "claims": unverified,
+        "secret_loaded": bool(EXT_SECRET_BYTES),
+        "secret_bytes_len": len(EXT_SECRET_BYTES),
+    })
 
 
 # ──────────────────────────────────────────────────────────────────────────────
