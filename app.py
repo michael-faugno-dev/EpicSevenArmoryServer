@@ -389,15 +389,15 @@ def auth_twitch_callback():
         display_name   = tuser.get("display_name") or tuser.get("login") or ""
         avatar_url     = tuser.get("profile_image_url")
 
-        # Attach to the Armory user
+        # Attach to the Armory user — store under links.twitch to match /link/callback schema
         Users.update_one(
             {"username": pending["username"]},
             {"$set": {
-                "twitch_user_id": twitch_user_id,
-                "twitch_login": twitch_login,
-                "twitch_display_name": display_name,
-                "twitch_avatar_url": avatar_url,
-                "twitch_linked_at": _now_utc(),
+                "links.twitch.user_id": twitch_user_id,
+                "links.twitch.login": twitch_login,
+                "links.twitch.display_name": display_name,
+                "links.twitch.avatar_url": avatar_url,
+                "links.twitch.linked_at": _now_utc(),
             }}
         )
 
