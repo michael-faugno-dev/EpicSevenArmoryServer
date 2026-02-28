@@ -396,7 +396,7 @@ def auth_twitch_callback():
     if not code or not link_code:
         return _html_close_page("Link failed", "Missing code or state (link_code)."), 400
 
-    pending = PendingLinks.find_one({"link_code": link_code}) if PendingLinks else None
+    pending = PendingLinks.find_one({"link_code": link_code}) if PendingLinks is not None else None
     if not pending:
         return _html_close_page("Link failed", "Invalid or expired link_code."), 400
 
@@ -456,7 +456,7 @@ def auth_link_status():
     if not link_code:
         return jsonify({"error": "link_code required"}), 400
 
-    row = PendingLinks.find_one({"link_code": link_code}) if PendingLinks else None
+    row = PendingLinks.find_one({"link_code": link_code}) if PendingLinks is not None else None
     if not row:
         return jsonify({"ok": True, "linked": False, "status": "unknown"}), 200
 
