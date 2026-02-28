@@ -331,39 +331,57 @@ def auth_twitch_start():
     if request.method == "OPTIONS":
         return _preflight_ok()
 
-    if not (TWITCH_OAUTH_CLIENT_ID and TWITCH_OAUTH_CLIENT_SECRET and TWITCH_OAUTH_REDIRECT_URI):
-        return jsonify({"error": "Twitch OAuth app not configured"}), 500
+    try:
+        if not TWITCH_OAUTH_CLIENT_ID:
+            return jsonify({"error": "TWITCH_OAUTH_CLIENT_ID not set on server"}), 500
+        if not TWITCH_OAUTH_CLIENT_SECRET:
+            return jsonify({"error": "TWITCH_OAUTH_CLIENT_SECRET not set on server"}), 500
+        if not TWITCH_OAUTH_REDIRECT_URI:
+            return jsonify({"error": "TWITCH_OAUTH_REDIRECT_URI not set on server"}), 500
 
-    link_code = (request.args.get("link_code") or "").strip()
-    if not link_code or len(link_code) < 8:
-        return jsonify({"error": "link_code required"}), 400
+        link_code = (request.args.get("link_code") or "").strip()
+        if not link_code or len(link_code) < 8:
+            return jsonify({"error": "link_code required (min 8 chars)"}), 400
 
-    # Who are we linking this Twitch identity to?
-    username = request.headers.get("Username") or request.args.get("username") or ""
-    username = username.strip()
-    if not username:
-        return jsonify({"error": "Username header or ?username is required"}), 400
+        # Who are we linking this Twitch identity to?
+        username = request.headers.get("Username") or request.args.get("username") or ""
+        username = username.strip()
+        if not username:
+            return jsonify({"error": "Username header or ?username is required"}), 400
 
-    # Confirm user exists
-    user_doc = Users.find_one({"username": username}) if Users else None
-    if not user_doc:
-        return jsonify({"error": "User not found"}), 404
+        # Confirm user exists
+        if Users is None:
+            return jsonify({"error": "Database not connected"}), 500
+        user_doc = Users.find_one({"username": username})
+        if not user_doc:
+            return jsonify({"error": f"Armory user '{username}' not found"}), 404
 
-    # Create/refresh pending link record (TTL ~10 minutes)
-    PendingLinks.update_one(
-        {"link_code": link_code},
-        {"$set": {
-            "link_code": link_code,
-            "username": username,
-            "status": "pending",
-            "created_at": _now_utc(),
-            "updated_at": _now_utc(),
-        }},
-        upsert=True
-    )
+        # Create/refresh pending link record (TTL ~10 minutes)
+        if PendingLinks is None:
+            return jsonify({"error": "PendingLinks collection not initialised"}), 500
+        PendingLinks.update_one(
+            {"link_code": link_code},
+            {"$set": {
+                "link_code": link_code,
+                "username": username,
+                "status": "pending",
+                "created_at": _now_utc(),
+                "updated_at": _now_utc(),
+            }},
+            upsert=True
+        )
 
-    auth_url = _twitch_auth_url(link_code, request.args.get("return_to", "close"))
-    return jsonify({"ok": True, "auth_url": auth_url})
+        auth_url = _twitch_auth_url(link_code, request.args.get("return_to", "close"))
+        return jsonify({"ok": True, "auth_url": auth_url})
+
+    except Exception as e:
+        import traceback as _tb
+        detail = _tb.format_exc()
+        print(f"[auth_twitch_start] Unhandled error: {e}\n{detail}", file=sys.stderr)
+        return jsonify({
+            "error": str(e),
+            "error_type": type(e).__name__,
+        }), 500
 
 @app.route("/auth/twitch/callback", methods=["GET"])
 def auth_twitch_callback():
