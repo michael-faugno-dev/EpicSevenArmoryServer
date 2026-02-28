@@ -446,6 +446,32 @@ def auth_link_status():
 # ──────────────────────────────────────────────────────────────────────────────
 # Twitch Extension Routes (overlay/config)
 # ──────────────────────────────────────────────────────────────────────────────
+@app.route("/twitch/my_armory", methods=["GET", "OPTIONS"])
+def twitch_my_armory():
+    """
+    Given a broadcaster JWT, return the Armory username linked to that Twitch user_id.
+    Used by the config page to auto-detect and pre-fill the username field.
+    """
+    if request.method == "OPTIONS":
+        return _preflight_ok()
+    try:
+        payload = verify_ext_jwt(request.headers.get("Authorization"))
+        twitch_user_id = str(payload.get("user_id") or "")
+        if not twitch_user_id:
+            return jsonify({"ok": True, "username": None, "reason": "no_user_id_in_jwt"})
+        user = Users.find_one({
+            "$or": [
+                {"links.twitch.user_id": twitch_user_id},
+                {"twitch_user_id": twitch_user_id},
+            ]
+        })
+        if user:
+            return jsonify({"ok": True, "username": user.get("username")})
+        return jsonify({"ok": True, "username": None, "reason": "not_linked"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 401
+
+
 @app.route("/twitch/channel_config", methods=["GET", "OPTIONS"])
 def twitch_channel_config():
     """
@@ -481,6 +507,29 @@ def twitch_map_channel():
         username = (data.get("username") or "").strip()
         if not username:
             return jsonify({"error": "username required"}), 400
+
+        # Verify the caller actually owns this Armory username by comparing the
+        # Twitch user_id in the JWT against the one stored when they linked accounts.
+        twitch_jwt_uid = str(payload.get("user_id") or "")
+        if twitch_jwt_uid:
+            user_doc = Users.find_one({"username": username})
+            if not user_doc:
+                return jsonify({"error": f"Armory username '{username}' not found."}), 404
+            stored_uid = str(
+                (user_doc.get("links") or {}).get("twitch", {}).get("user_id")
+                or user_doc.get("twitch_user_id")
+                or ""
+            )
+            if not stored_uid:
+                return jsonify({"error": (
+                    "This Armory account has not been linked to a Twitch account yet. "
+                    "Open the Armory desktop app \u2192 Profile \u2192 Link Twitch, then try again."
+                )}), 403
+            if stored_uid != twitch_jwt_uid:
+                return jsonify({"error": (
+                    "This Twitch account is not linked to that Armory username. "
+                    "Make sure you linked your accounts in the Armory desktop app."
+                )}), 403
 
         channel_id = payload["channel_id"]
         doc = {
